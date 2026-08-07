@@ -1,0 +1,240 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "logicAppName": {
+      "type": "String",
+      "defaultValue": "PluginLogicApp_PurviewLabelUsageWeeklyReport",
+      "metadata": {
+        "description": "Purview 秘密度ラベル利用状況 週次レポートを送信する Logic App ワークフロー名"
+      }
+    },
+    "recipientEmailAddress": {
+      "type": "String",
+      "defaultValue": "security-report@contoso.com",
+      "metadata": {
+        "description": "レポートの送信先メールアドレス"
+      }
+    },
+    "emailSubject": {
+      "type": "String",
+      "defaultValue": "[Purview] 秘密度ラベル 利用状況 週次レポート",
+      "metadata": {
+        "description": "レポートメールの件名"
+      }
+    },
+    "office365ConnectionName": {
+      "type": "String",
+      "defaultValue": "office365"
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Web/connections",
+      "apiVersion": "2016-06-01",
+      "name": "[parameters('office365ConnectionName')]",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "displayName": "Office 365",
+        "api": {
+          "id": "[concat(subscription().id, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/', 'office365')]"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Logic/workflows",
+      "apiVersion": "2017-07-01",
+      "name": "[parameters('logicAppName')]",
+      "location": "[resourceGroup().location]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/connections', parameters('office365ConnectionName'))]"
+      ],
+      "properties": {
+        "state": "Enabled",
+        "definition": {
+          "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+          "contentVersion": "1.0.0.0",
+          "parameters": {
+            "$connections": {
+              "defaultValue": {},
+              "type": "Object"
+            },
+            "recipientEmailAddress": {
+              "type": "String",
+              "defaultValue": "[parameters('recipientEmailAddress')]"
+            },
+            "emailSubject": {
+              "type": "String",
+              "defaultValue": "[parameters('emailSubject')]"
+            }
+          },
+          "triggers": {
+            "manual": {
+              "type": "Request",
+              "kind": "Http",
+              "inputs": {
+                "method": "POST",
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ReportHtml": {
+                      "type": "string",
+                      "description": "メール本文として送信するラベル利用状況 週次レポートの HTML 全文"
+                    },
+                    "Subject": {
+                      "type": "string",
+                      "description": "任意: メール件名を上書きする場合に指定"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "actions": {
+            "Parse_JSON": {
+              "type": "ParseJson",
+              "runAfter": {},
+              "inputs": {
+                "content": "@triggerBody()",
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ReportHtml": {
+                      "type": "string"
+                    },
+                    "Subject": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            },
+            "Check_ReportHtml_Valid": {
+              "type": "If",
+              "runAfter": {
+                "Parse_JSON": [
+                  "Succeeded"
+                ]
+              },
+              "expression": {
+                "and": [
+                  {
+                    "not": {
+                      "equals": [
+                        "@{coalesce(body('Parse_JSON')?['ReportHtml'], '')}",
+                        ""
+                      ]
+                    }
+                  }
+                ]
+              },
+              "actions": {
+                "Send_an_email_(V2)": {
+                  "type": "ApiConnection",
+                  "runAfter": {},
+                  "inputs": {
+                    "host": {
+                      "connection": {
+                        "name": "@parameters('$connections')['office365']['connectionId']"
+                      }
+                    },
+                    "method": "post",
+                    "path": "/v2/Mail",
+                    "body": {
+                      "To": "@parameters('recipientEmailAddress')",
+                      "Subject": "@{coalesce(body('Parse_JSON')?['Subject'], parameters('emailSubject'))}",
+                      "Body": "@body('Parse_JSON')?['ReportHtml']",
+                      "Importance": "Normal"
+                    }
+                  }
+                },
+                "Response_Success": {
+                  "type": "Response",
+                  "kind": "Http",
+                  "runAfter": {
+                    "Send_an_email_(V2)": [
+                      "Succeeded"
+                    ]
+                  },
+                  "inputs": {
+                    "statusCode": 200,
+                    "headers": {
+                      "Content-Type": "application/json"
+                    },
+                    "body": {
+                      "status": "success",
+                      "message": "Purview 秘密度ラベル利用状況 週次レポートをメール送信しました。"
+                    }
+                  }
+                },
+                "Response_Failure": {
+                  "type": "Response",
+                  "kind": "Http",
+                  "runAfter": {
+                    "Send_an_email_(V2)": [
+                      "Failed",
+                      "TimedOut"
+                    ]
+                  },
+                  "inputs": {
+                    "statusCode": 500,
+                    "headers": {
+                      "Content-Type": "application/json"
+                    },
+                    "body": {
+                      "status": "error",
+                      "message": "レポートメールの送信に失敗しました。",
+                      "errorDetails": "@actions('Send_an_email_(V2)')?.error"
+                    }
+                  }
+                }
+              },
+              "else": {
+                "actions": {
+                  "Response_Skipped": {
+                    "type": "Response",
+                    "kind": "Http",
+                    "runAfter": {},
+                    "inputs": {
+                      "statusCode": 400,
+                      "headers": {
+                        "Content-Type": "application/json"
+                      },
+                      "body": {
+                        "status": "skipped",
+                        "message": "ReportHtml が空または未指定のため、メール送信をスキップしました。"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": {
+          "$connections": {
+            "value": {
+              "office365": {
+                "connectionId": "[resourceId('Microsoft.Web/connections', parameters('office365ConnectionName'))]",
+                "connectionName": "[parameters('office365ConnectionName')]",
+                "id": "[concat(subscription().id, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/', 'office365')]"
+              }
+            }
+          },
+          "recipientEmailAddress": {
+            "value": "[parameters('recipientEmailAddress')]"
+          },
+          "emailSubject": {
+            "value": "[parameters('emailSubject')]"
+          }
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "logicAppTriggerUrl": {
+      "type": "String",
+      "value": "[listCallbackURL(concat(resourceId('Microsoft.Logic/workflows', parameters('logicAppName')), '/triggers/manual'), '2017-07-01').value]"
+    }
+  }
+}

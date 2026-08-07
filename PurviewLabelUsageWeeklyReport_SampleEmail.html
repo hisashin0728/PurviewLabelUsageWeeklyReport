@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Purview 秘密度ラベル 利用状況 週次レポート（サンプル）</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Meiryo','メイリオ',sans-serif;
+    background: #EAF1FB;
+    color: #16263D;
+    line-height: 1.7;
+    padding: 24px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  .card {
+    background: #FFFFFF;
+    border: 1px solid #C7D9EE;
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(15,61,110,0.12);
+    margin-bottom: 20px;
+    overflow: hidden;
+  }
+  .header {
+    background: #0F3D6E;
+    color: #FFFFFF;
+    padding: 28px 32px;
+  }
+  .header h1 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+  .header .sub { font-size: 13px; opacity: 0.92; }
+  .header .sample-tag {
+    display: inline-block; background: #B00020; color: #FFFFFF;
+    font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 12px;
+    letter-spacing: 1px; margin-bottom: 10px;
+  }
+  .section { padding: 22px 32px; }
+  .section-title {
+    font-size: 17px; font-weight: 700; color: #FFFFFF; background: #0F3D6E;
+    padding: 10px 16px; border-radius: 6px; margin-bottom: 16px;
+  }
+  .sub-title {
+    font-size: 15px; font-weight: 700; color: #0F3D6E;
+    border-left: 5px solid #0078D4; padding-left: 10px; margin: 22px 0 10px;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 8px; }
+  th {
+    background: #0F3D6E; color: #FFFFFF; text-align: left;
+    padding: 8px 10px; font-weight: 700; border: 1px solid #C7D9EE;
+  }
+  td { padding: 7px 10px; border: 1px solid #C7D9EE; vertical-align: middle; }
+  tbody tr:nth-child(even) { background: #F2F7FD; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .top-row td { font-weight: 700; background: #E3EEFB; }
+  /* 横棒グラフ */
+  .bar-wrap { display: flex; align-items: center; gap: 8px; }
+  .bar-track { flex: 1; background: #E3EEFB; border-radius: 4px; height: 16px; overflow: hidden; min-width: 80px; }
+  .bar-fill { height: 100%; border-radius: 4px; }
+  .bar-strong { background: #0F3D6E; }
+  .bar-mid { background: #0078D4; }
+  .bar-light { background: #6BB1EA; }
+  .bar-label { font-size: 12px; color: #16263D; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  /* アクション色バッジ */
+  .b { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; color: #FFFFFF; }
+  .b-apply { background: #0078D4; }
+  .b-change { background: #F2A100; }
+  .b-remove { background: #B00020; }
+  /* 傾向判定バナー */
+  .banner {
+    display: flex; align-items: center; gap: 12px;
+    color: #FFFFFF; padding: 14px 18px; border-radius: 8px; font-size: 14px; font-weight: 700;
+    margin: 14px 0;
+  }
+  .banner .big { font-size: 20px; }
+  .banner-active { background: #0F3D6E; }
+  .banner-stable { background: #0078D4; }
+  .banner-low { background: #6BB1EA; color: #0F3D6E; }
+  .banner-warn { background: #B00020; }
+  .delta-up { color: #B00020; font-weight: 700; }
+  .delta-down { color: #0F7A0D; font-weight: 700; }
+  .delta-flat { color: #605E5C; font-weight: 700; }
+  .kpi-grid { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 6px; }
+  .kpi {
+    flex: 1; min-width: 150px; background: #F2F7FD; border: 1px solid #C7D9EE;
+    border-radius: 8px; padding: 12px 16px;
+  }
+  .kpi .label { font-size: 12px; color: #0F3D6E; font-weight: 700; }
+  .kpi .value { font-size: 24px; font-weight: 700; color: #16263D; font-variant-numeric: tabular-nums; }
+  .kpi .note { font-size: 12px; }
+  .comment {
+    background: #F2F7FD; border: 1px solid #C7D9EE; border-left: 4px solid #0078D4;
+    border-radius: 6px; padding: 10px 14px; font-size: 13px; margin: 8px 0 4px;
+  }
+  .legend { font-size: 12px; color: #16263D; margin: 6px 0 12px; }
+  .legend .b { margin-right: 4px; }
+  .notice {
+    background: #FFF4CE; border: 1px solid #F2D57E; color: #6B5900;
+    border-radius: 8px; padding: 12px 16px; font-size: 13px; margin-bottom: 16px;
+  }
+  .footer { padding: 18px 32px; font-size: 12px; color: #16263D; background: #F2F7FD; border-top: 1px solid #C7D9EE; }
+  .path { font-size: 12px; color: #16263D; word-break: break-all; }
+  @media (max-width: 640px) {
+    body { padding: 12px; }
+    .header, .section, .footer { padding-left: 18px; padding-right: 18px; }
+    .kpi { min-width: 100%; }
+    table { font-size: 12px; }
+  }
+  @media print {
+    body { background: #FFFFFF; padding: 0; }
+    .card { box-shadow: none; border: 1px solid #999; }
+    .banner, .b, th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ヘッダー -->
+  <div class="card">
+    <div class="header">
+      <div class="sample-tag">SAMPLE / ダミーデータ</div>
+      <h1>Purview 秘密度ラベル 利用状況 週次レポート</h1>
+      <div class="sub">
+        対象期間: 2026-07-24（金）〜 2026-07-30（木）&nbsp;·&nbsp;
+        生成日時: 2026-07-31 06:00 JST&nbsp;·&nbsp;
+        データソース: Microsoft Defender CloudAppEvents（Purview 統合監査ログ）
+      </div>
+    </div>
+    <div class="section" style="padding-top:18px;padding-bottom:6px;">
+      <div class="notice">
+        ⚠️ これは <strong>PurviewLabelUsageWeeklyReport エージェントが生成するレポートのサンプル（ダミーデータ）</strong>です。
+        実際の値・ユーザー名・ファイル名・ラベル名は含まれていません。本エージェントは DLP ポリシー（ルール）を
+        有効化していない環境で、秘密度ラベルの付与／変更／削除の利用状況を集計します。
+      </div>
+    </div>
+  </div>
+
+  <!-- 1. 対象期間 -->
+  <div class="card">
+    <div class="section">
+      <div class="section-title">1. 対象期間</div>
+      <table>
+        <thead>
+          <tr><th>区分</th><th>期間</th><th class="num">付与</th><th class="num">変更</th><th class="num">削除</th><th class="num">合計</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>今週</td><td>2026-07-24 〜 2026-07-30</td><td class="num">286</td><td class="num">41</td><td class="num">15</td><td class="num">342</td></tr>
+          <tr><td>前週</td><td>2026-07-17 〜 2026-07-23</td><td class="num">262</td><td class="num">30</td><td class="num">13</td><td class="num">305</td></tr>
+        </tbody>
+      </table>
+      <div class="comment">
+        生成日時: 2026-07-31 06:00 JST。今週の総ラベル アクティビティは 342 件（前週 305 件、
+        <span class="delta-up">+12.1%</span>）。付与が中心（83.6%）で、変更・削除は全体の 16.4%。
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. エグゼクティブサマリー -->
+  <div class="card">
+    <div class="section">
+      <div class="section-title">2. エグゼクティブサマリー</div>
+      <div class="kpi-grid">
+        <div class="kpi"><div class="label">総アクティビティ</div><div class="value">342</div><div class="note delta-up">前週比 +12.1%（+37）</div></div>
+        <div class="kpi"><div class="label">付与</div><div class="value">286</div><div class="note delta-up">+24（+9.2%）</div></div>
+        <div class="kpi"><div class="label">変更</div><div class="value">41</div><div class="note delta-up">+11（+36.7%）</div></div>
+        <div class="kpi"><div class="label">削除</div><div class="value">15</div><div class="note delta-up">+2（+15.4%）</div></div>
+      </div>
+      <div class="banner banner-stable">
+        <span class="big">◎</span>
+        <span>総合傾向判定: <strong>安定（活性）</strong> — ラベル付与が前週から堅調に増加。ただし変更・削除の増加は注視。</span>
+      </div>
+      <div class="comment">
+        今週は付与が 286 件（前週比 +9.2%）と堅調で、ラベル運用は活性化傾向にあります。
+        最も付与が多いラベルは <strong>Confidential / All Employees</strong>（142 件、前週比 +20.3%）。
+        一方で <strong>変更が +36.7%</strong>、削除が +15.4% と増加しており、特に Highly Confidential 系からの
+        格下げ・削除が数件発生しています（3-5 参照）。全体としては健全ですが、格下げ・削除の妥当性は
+        個別確認を推奨します。ラベル未解決（GUID のまま）のイベントが 5 件あり、LabelMap への
+        カスタムラベル追記で名称解決が可能です。
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. ラベル利用状況 集計 -->
+  <div class="card">
+    <div class="section">
+      <div class="section-title">3. ラベル利用状況 集計</div>
+      <div class="legend">
+        凡例:
+        <span class="b b-apply">付与</span>
+        <span class="b b-change">変更</span>
+        <span class="b b-remove">削除</span>
+        &nbsp;／&nbsp; ラベル表記は「親 / 子（サブラベル）」形式
+      </div>
+
+      <!-- 3-1 ラベル分布 -->
+      <div class="sub-title">3-1. ラベル分布（ラベル毎の集計）</div>
+      <table>
+        <thead>
+          <tr>
+            <th>ラベル（親 / 子）</th>
+            <th style="width:26%">今週（比率）</th>
+            <th class="num">今週</th><th class="num">前週</th><th class="num">増減</th>
+            <th class="num">付与</th><th class="num">変更</th><th class="num">削除</th>
+            <th class="num">ユーザー</th><th class="num">ファイル</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="top-row">
+            <td>Confidential / All Employees</td>
+            <td><div class="bar-wrap"><div class="bar-track"><div class="bar-fill bar-strong" style="width:100%"></div></div><span class="bar-label">142</span></div></td>
+            <td class="num">142</td><td class="num">118</td><td class="num delta-up">+24</td>
+            <td class="num">118</td><td class="num">18</td><td class="num">6</td><td class="num">34</td><td class="num">121</td>
+          </tr>
+          <tr class="top-row">
+            <td>General</td>
+            <td><div class="bar-wrap"><div class="bar-track"><div class="bar-fill bar-strong" style="width:68%"></div></div><span class="bar-label">96</span></div></td>
+            <td class="num">96</td><td class="num">110</td><td class="num delta-down">−14</td>
+            <td class="num">88</td><td class="num">6</td><td class="num">2</td><td class="num">41</td><td class="num">84</td>
+          </tr>
+          <tr class="top-row">
+            <td>Highly Confidential / All Employees</td>
+            <td><div class="bar-wrap"><div class="bar-track"><div class="bar-fill bar-mid" style="width:33%"></div></div><span class="bar-label">47</span></div></td>
+            <td class="num">47</td><td class="num">33</td><td class="num delta-up">+14</td>
+            <td class="num">40</td><td class="num">5</td><td class="num">2</td><td class="num">12</td><td class="num">44</td>
+          </tr>
+          <tr>
+            <td>Confidential / Anyone</td>
+            <td><div class="bar-wrap"><div class="bar-track"><div class="bar-fill bar-mid" style="width:20%"></div></div><span class="bar-label">28</span></div></td>
+            <td class="num">28</td><td class="num">22</td><td class="num delta-up">+6</td>
+            <td class="num">22</td><td class="num">4</td><td class="num">2</td><td class="num">9</td><td class="num">25</td>
+          </tr>
+          <tr>
+            <td>Personal</td>
+            <td><div class="bar-wrap"><div class="bar-track"><div class="bar-fill bar-light" style="width:11%"></div></div><span class="bar-label">15</span></div></td>
+            <td class="num">15</td><td class="num">12</td><td class="num delta-up">+3</td>
+            <td class="num">12</td><td class="num">1</td><td class="num">2</td><td class="num">8</td><td class="num">14</td>
+          </tr>
+          <tr>
+            <td>Public</td>
+            <td><div class="bar-wrap"><div class="bar-track"><div class="bar-fill bar-light" style="width:6%"></div></div><span class="bar-label">9</span></div></td>
+            <td class="num">9</td><td class="num">7</td><td class="num delta-up">+2</td>
+            <td class="num">8</td><td class="num">1</td><td class="num">0</td><td class="num">6</td><td class="num">9</td>
+          </tr>
+          <tr>
+            <td>defa4170-…-a1b2（ラベルなし/不明）</td>
+            <td><div class="bar-wrap"><div class="bar-track"><div class="bar-fill bar-light" style="width:4%"></div></div><span class="bar-label">5</span></div></td>
+            <td class="num">5</td><td class="num">3</td><td class="num delta-up">+2</td>
+            <td class="num">4</td><td class="num">1</td><td class="num">0</td><td class="num">3</td><td class="num">5</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="comment">
+        最多付与は <strong>Confidential / All Employees</strong>（142 件、+24）で、機密系ラベルの利用が広がっています。
+        <strong>General は −14</strong> と減少しており、より上位ラベルへ移行している可能性があります。
+        未解決 GUID（5 件）はカスタムラベルとみられ、LabelMap へ <code>Get-Label</code> の ImmutableId / 親名を
+        追記すると「親 / 子」で名称表示されます。
+      </div>
+
+      <!-- 3-2 アクション別集計 -->
+      <div class="sub-title">3-2. アクション別集計（付与 / 変更 / 削除）</div>
+      <table>
+        <thead>
+          <tr><th>アクション</th><th style="width:36%">今週（比率）</th><th class="num">今週</th><th class="num">前週</th><th class="num">増減</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="b b-apply">付与</span></td>
+            <td><div class="bar-wrap"><div class="bar-track"><div class="bar-fill bar-strong" style="width:100%"></div></div><span class="bar-label">286</span></div></td>
+            <td class="num">286</td><td class="num">262</td><td class="num delta-up">+24</td>
+          </tr>
+          <tr>
+            <td><span class="b b-change">変更</span></td>
+            <td><div class="bar-wrap"><div class="bar-track"><div class="bar-fill bar-mid" style="width:14%"></div></div><span class="bar-label">41</span></div></td>
+            <td class="num">41</td><td class="num">30</td><td class="num delta-up">+11</td>
+          </tr>
+          <tr>
+            <td><span class="b b-remove">削除</span></td>
+            <td><div class="bar-wrap"><div class="bar-track"><div class="bar-fill bar-light" style="width:5%"></div></div><span class="bar-label">15</span></div></td>
+            <td class="num">15</td><td class="num">13</td><td class="num delta-up">+2</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="comment">
+        アクティビティの中心は付与（83.6%）で、ラベル付けが定着しつつあります。変更が <strong>+36.7%</strong> と
+        増加率が最も高く、ラベルの貼り直し・見直しが増えています。削除は 15 件で全体比は小さいものの、
+        後述の格下げ・削除（3-5）と合わせて妥当性を確認してください。
+      </div>
+
+      <!-- 3-3 アプリ/ワークロード別 -->
+      <div class="sub-title">3-3. アプリ／ワークロード別</div>
+      <table>
+        <thead>
+          <tr>
+            <th>ワークロード</th><th style="width:26%">今週（比率）</th>
+            <th class="num">今週</th><th class="num">前週</th>
+            <th class="num">付与</th><th class="num">変更</th><th class="num">削除</th><th>主なラベル</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="top-row">
+            <td>Word</td>
+            <td><div class="bar-wrap"><div class="bar-track"><div class="bar-fill bar-strong" style="width:100%"></div></div><span class="bar-label">98</span></div></td>
+            <td class="num">98</td><td class="num">88</td><td class="num">82</td><td class="num">12</td><td class="num">4</td><td>Confidential / All Employees</td>
+          </tr>
+          <tr class="top-row">
+            <td>Excel</td>
+            <td><div class="bar-wrap"><div class="bar-track"><div class="bar-fill bar-strong" style="width:78%"></div></div><span class="bar-label">76</span></div></td>
+            <td class="num">76</td><td class="num">70</td><td class="num">66</td><td class="num">8</td><td class="num">2</td><td>Highly Confidential / All Employees</td>
+          </tr>
+          <tr class="top-row">
+            <td>SharePoint</td>
+            <td><div class="bar-wrap"><div class="bar-track"><div class="bar-fill bar-mid" style="width:65%"></div></div><span class="bar-label">64</span></div></td>
+            <td class="num">64</td><td class="num">55</td><td class="num">52</td><td class="num">8</td><td class="num">4</td><td>Confidential / All Employees</td>
+          </tr>
+          <tr>
+            <td>Outlook</td>
+            <td><div class="bar-wrap"><div class="bar-track"><div class="bar-fill bar-mid" style="width:46%"></div></div><span class="bar-label">45</span></div></td>
+            <td class="num">45</td><td class="num">40</td><td class="num">40</td><td class="num">4</td><td class="num">1</td><td>General</td>
+          </tr>
+          <tr>
+            <td>PowerPoint</td>
+            <td><div class="bar-wrap"><div class="bar-track"><div class="bar-fill bar-light" style="width:32%"></div></div><span class="bar-label">31</span></div></td>
+            <td class="num">31</td><td class="num">28</td><td class="num">26</td><td class="num">4</td><td class="num">1</td><td>Confidential / Anyone</td>
+          </tr>
+          <tr>
+            <td>OneDrive</td>
+            <td><div class="bar-wrap"><div class="bar-track"><div class="bar-fill bar-light" style="width:20%"></div></div><span class="bar-label">20</span></div></td>
+            <td class="num">20</td><td class="num">18</td><td class="num">16</td><td class="num">3</td><td class="num">1</td><td>General</td>
+          </tr>
+          <tr>
+            <td>Teams</td>
+            <td><div class="bar-wrap"><div class="bar-track"><div class="bar-fill bar-light" style="width:8%"></div></div><span class="bar-label">8</span></div></td>
+            <td class="num">8</td><td class="num">6</td><td class="num">4</td><td class="num">2</td><td class="num">2</td><td>Confidential / All Employees</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="comment">
+        Office クライアントアプリ（Word / Excel / PowerPoint 計 205 件、60%）でのラベル付与が中心で、
+        クラウド（SharePoint / OneDrive / Teams 計 92 件、27%）がこれに続きます。Word・Excel での機密系ラベル
+        付与が堅調で、クライアント側のラベル運用が定着していると評価できます。新規ワークロードの出現はありません。
+      </div>
+
+      <!-- 3-4 ユーザー分析 -->
+      <div class="sub-title">3-4. ユーザー分析（Top 15）</div>
+      <table>
+        <thead>
+          <tr><th>#</th><th>ユーザー</th><th style="width:22%">合計（比率）</th><th class="num">付与</th><th class="num">変更</th><th class="num">削除</th><th class="num">合計</th><th>主なラベル</th></tr>
+        </thead>
+        <tbody>
+          <tr class="top-row"><td>1</td><td>yamada@contoso.com</td><td><div class="bar-wrap"><div class="bar-track"><div class="bar-fill bar-strong" style="width:100%"></div></div><span class="bar-label">31</span></div></td><td class="num">27</td><td class="num">3</td><td class="num">1</td><td class="num">31</td><td>Confidential / All Employees</td></tr>
+          <tr class="top-row"><td>2</td><td>suzuki@contoso.com</td><td><div class="bar-wrap"><div class="bar-track"><div class="bar-fill bar-strong" style="width:84%"></div></div><span class="bar-label">26</span></div></td><td class="num">24</td><td class="num">2</td><td class="num">0</td><td class="num">26</td><td>General</td></tr>
+          <tr class="top-row"><td>3</td><td>tanaka@contoso.com</td><td><div class="bar-wrap"><div class="bar-track"><div class="bar-fill bar-strong" style="width:71%"></div></div><span class="bar-label">22</span></div></td><td class="num">16</td><td class="num">3</td><td class="num">3</td><td class="num">22</td><td>Highly Confidential / All Employees</td></tr>
+          <tr><td>4</td><td>sato@contoso.com</td><td><div class="bar-wrap"><div class="bar-track"><div class="bar-fill bar-mid" style="width:61%"></div></div><span class="bar-label">19</span></div></td><td class="num">14</td><td class="num">4</td><td class="num">1</td><td class="num">19</td><td>Confidential / All Employees</td></tr>
+          <tr><td>5</td><td>ito@contoso.com</td><td><div class="bar-wrap"><div class="bar-track"><div class="bar-fill bar-mid" style="width:52%"></div></div><span class="bar-label">16</span></div></td><td class="num">15</td><td class="num">1</td><td class="num">0</td><td class="num">16</td><td>General</td></tr>
+          <tr><td>6</td><td>watanabe@contoso.com</td><td><div class="bar-wrap"><div class="bar-track"><div class="bar-fill bar-mid" style="width:45%"></div></div><span class="bar-label">14</span></div></td><td class="num">10</td><td class="num">3</td><td class="num">1</td><td class="num">14</td><td>Confidential / Anyone</td></tr>
+          <tr><td>7</td><td>kobayashi@contoso.com</td><td><div class="bar-wrap"><div class="bar-track"><div class="bar-fill bar-light" style="width:39%"></div></div><span class="bar-label">12</span></div></td><td class="num">10</td><td class="num">2</td><td class="num">0</td><td class="num">12</td><td>Confidential / All Employees</td></tr>
+          <tr><td>8</td><td>kato@contoso.com</td><td><div class="bar-wrap"><div class="bar-track"><div class="bar-fill bar-light" style="width:32%"></div></div><span class="bar-label">10</span></div></td><td class="num">9</td><td class="num">1</td><td class="num">0</td><td class="num">10</td><td>General</td></tr>
+          <tr><td>9</td><td>yoshida@contoso.com</td><td><div class="bar-wrap"><div class="bar-track"><div class="bar-fill bar-light" style="width:29%"></div></div><span class="bar-label">9</span></div></td><td class="num">8</td><td class="num">1</td><td class="num">0</td><td class="num">9</td><td>Public</td></tr>
+          <tr><td>10</td><td>APP@SharePoint（自動ラベル）</td><td><div class="bar-wrap"><div class="bar-track"><div class="bar-fill bar-light" style="width:26%"></div></div><span class="bar-label">8</span></div></td><td class="num">8</td><td class="num">0</td><td class="num">0</td><td class="num">8</td><td>Confidential / All Employees</td></tr>
+        </tbody>
+      </table>
+      <div class="comment">
+        付与は複数ユーザーに分散しており、特定個人への過度な偏りは見られません。
+        <strong>tanaka@contoso.com</strong> は削除 3 件と突出しているため、Highly Confidential ラベルの
+        削除理由の確認を推奨します（3-5 参照）。10 位の <strong>APP@SharePoint</strong> は自動ラベル付与
+        （サービス処理）による記録で、対話的なユーザー操作ではありません。
+      </div>
+
+      <!-- 3-5 格下げ・削除の注視 -->
+      <div class="sub-title">3-5. 格下げ・削除の注視（リスク）</div>
+      <table>
+        <thead>
+          <tr><th>種別</th><th class="num">今週</th><th class="num">前週</th><th>ユーザー</th><th>旧ラベル → 新ラベル</th><th>主なファイル</th><th>理由</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="b b-remove">削除</span></td>
+            <td class="num">2</td><td class="num">1</td>
+            <td>tanaka@contoso.com</td>
+            <td>Highly Confidential / All Employees → （なし）</td>
+            <td class="path">2026Q3_原価計算.xlsx</td>
+            <td>（理由未入力）</td>
+          </tr>
+          <tr>
+            <td><span class="b b-remove" style="background:#F2A100;">格下げ</span></td>
+            <td class="num">3</td><td class="num">1</td>
+            <td>sato@contoso.com</td>
+            <td>Confidential / All Employees → General</td>
+            <td class="path">提案書_ドラフト.docx</td>
+            <td>誤付与の修正</td>
+          </tr>
+          <tr>
+            <td><span class="b b-apply">格上げ</span></td>
+            <td class="num">4</td><td class="num">3</td>
+            <td>kobayashi@contoso.com</td>
+            <td>General → Confidential / All Employees</td>
+            <td class="path">契約書_最終版.pdf</td>
+            <td>機密情報を追記したため</td>
+          </tr>
+          <tr>
+            <td>変更（不明）</td>
+            <td class="num">2</td><td class="num">2</td>
+            <td>watanabe@contoso.com</td>
+            <td>（不明） → Confidential / Anyone</td>
+            <td class="path">共有メモ.docx</td>
+            <td>—</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="comment">
+        今週は <strong>削除 2 件・格下げ 3 件</strong>で前週から微増。特に Highly Confidential ラベルの削除
+        （理由未入力）は要確認です。格上げ 4 件は機密情報の追記に伴う適切な引き上げとみられます。
+        <strong>格上げ／格下げの判定は旧・新ラベルの優先度比較によるヒューリスティック</strong>であり、
+        旧ラベル ID が取得できないイベントは「変更（不明）」に分類しています（今週 2 件）。
+      </div>
+
+      <!-- 3-6 ファイル分析 -->
+      <div class="sub-title">3-6. ファイル分析（種別・パス）</div>
+      <table>
+        <thead>
+          <tr><th>ファイル種別</th><th style="width:26%">今週（比率）</th><th class="num">今週</th><th class="num">前週</th><th class="num">件数</th><th>主なラベル</th></tr>
+        </thead>
+        <tbody>
+          <tr class="top-row"><td>Word</td><td><div class="bar-wrap"><div class="bar-track"><div class="bar-fill bar-strong" style="width:100%"></div></div><span class="bar-label">98</span></div></td><td class="num">98</td><td class="num">88</td><td class="num">98</td><td>Confidential / All Employees</td></tr>
+          <tr class="top-row"><td>Excel/表計算</td><td><div class="bar-wrap"><div class="bar-track"><div class="bar-fill bar-strong" style="width:78%"></div></div><span class="bar-label">76</span></div></td><td class="num">76</td><td class="num">70</td><td class="num">76</td><td>Highly Confidential / All Employees</td></tr>
+          <tr class="top-row"><td>PowerPoint</td><td><div class="bar-wrap"><div class="bar-track"><div class="bar-fill bar-mid" style="width:32%"></div></div><span class="bar-label">31</span></div></td><td class="num">31</td><td class="num">28</td><td class="num">31</td><td>Confidential / Anyone</td></tr>
+          <tr><td>PDF</td><td><div class="bar-wrap"><div class="bar-track"><div class="bar-fill bar-mid" style="width:22%"></div></div><span class="bar-label">22</span></div></td><td class="num">22</td><td class="num">19</td><td class="num">22</td><td>Confidential / All Employees</td></tr>
+          <tr><td>テキスト</td><td><div class="bar-wrap"><div class="bar-track"><div class="bar-fill bar-light" style="width:6%"></div></div><span class="bar-label">6</span></div></td><td class="num">6</td><td class="num">4</td><td class="num">6</td><td>General</td></tr>
+        </tbody>
+      </table>
+      <div class="sub-title" style="font-size:13px;border-left-color:#6BB1EA;">主な対象ファイル一覧</div>
+      <table>
+        <thead>
+          <tr><th>種別</th><th>ファイル名</th><th>ラベル</th><th>ディレクトリ</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Excel</td><td>2026Q3_原価計算.xlsx</td><td>Highly Confidential / All Employees</td><td class="path">https://contoso.sharepoint.com/sites/Finance/Shared Documents/2026Q3</td></tr>
+          <tr><td>Word</td><td>提案書_ドラフト.docx</td><td>Confidential / All Employees</td><td class="path">https://contoso.sharepoint.com/sites/Sales/Shared Documents/Proposals</td></tr>
+          <tr><td>PDF</td><td>契約書_最終版.pdf</td><td>Confidential / All Employees</td><td class="path">C:\Users\kobayashi\OneDrive - Contoso\Contracts</td></tr>
+          <tr><td>PowerPoint</td><td>製品ロードマップ.pptx</td><td>Confidential / Anyone</td><td class="path">https://contoso.sharepoint.com/sites/Product/Shared Documents</td></tr>
+          <tr><td>Word</td><td>共有メモ.docx</td><td>Confidential / Anyone</td><td class="path">https://contoso.sharepoint.com/sites/Team/Shared Documents/Notes</td></tr>
+        </tbody>
+      </table>
+      <div class="comment">
+        ラベル付与は <strong>Word・Excel</strong> に集中（計 174 件、全体の 51%）。Finance サイトの Excel には
+        Highly Confidential 系が付与されており、機密度の高い財務データが適切にラベル付けされています。
+        特定フォルダ（Finance / Sales）への集中がみられ、部門主導のラベル運用が進んでいると評価できます。
+      </div>
+    </div>
+  </div>
+
+  <!-- フッター -->
+  <div class="card">
+    <div class="footer">
+      本レポートは Security Copilot エージェント（PurviewLabelUsageWeeklyReport）により自動生成されました。<br>
+      データソース: Microsoft Defender CloudAppEvents（Purview 統合監査ログ / 秘密度ラベル アクティビティ）&nbsp;·&nbsp;
+      生成日時: 2026-07-31 06:00 JST&nbsp;·&nbsp;
+      <strong>機密 — 社内限定</strong>&nbsp;·&nbsp;
+      ※ 本ファイルはダミーデータによるサンプルです。
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,735 @@
+Descriptor:
+  Name: PurviewLabelUsageWeeklyReport
+  DisplayName: Purview Label Usage Weekly Report
+  Description: >-
+    DLP ポリシー（ルール）を有効化していない環境向けに、Microsoft Purview の
+    秘密度ラベルの「利用状況」を、Defender Advanced Hunting の CloudAppEvents テーブルから
+    KQL で週次集計し、視認性の高い HTML/CSS レポートを Azure Logic App 経由でメール配信する
+    カスタムエージェントです。CloudAppEvents の統合監査ログ
+    （RawEventData.Operation = FileSensitivityLabelApplied / FileSensitivityLabelChanged /
+    FileSensitivityLabelRemoved / SensitivityLabelApplied / SensitivityLabelUpdated /
+    SensitivityLabelRemoved / SiteSensitivityLabel* 等）を条件に、ラベルの付与・変更・削除を
+    判別します。ラベル分布・アクション別集計（付与／変更／削除）・アプリ／ワークロード別・
+    ユーザー分析・格下げ／削除の注視・ファイル分析を含む、事実ベースの日本語 HTML レポートを
+    生成します。DLP ルールは不要で、ラベル付与のみを行う環境で利用できます。
+  Settings:
+    - Name: LogicAppSubscriptionId
+      Label: Logic App Subscription ID
+      Description: レポートメールを送信する Logic App が存在する Azure サブスクリプション ID
+      HintText: "例: 00000000-0000-0000-0000-000000000000"
+      SettingType: String
+      Required: true
+    - Name: LogicAppResourceGroup
+      Label: Logic App Resource Group
+      Description: レポートメール送信用 Logic App が属するリソースグループ名
+      HintText: "例: ispf-resourcegroup"
+      SettingType: String
+      Required: true
+    - Name: LogicAppWorkflowName
+      Label: Logic App Workflow Name
+      Description: レポートメールを送信する Logic App ワークフロー名
+      HintText: "例: PluginLogicApp_PurviewLabelUsageWeeklyReport"
+      SettingType: String
+      Required: true
+
+AgentDefinitions:
+  - Name: PurviewLabelUsageWeeklyReportAgent
+    DisplayName: Purview Label Usage Weekly Report Agent
+    Description: >-
+      Purview の秘密度ラベルの利用状況（付与／変更／削除）を Defender の CloudAppEvents から
+      週次集計し、対象期間・エグゼクティブサマリー（前週比較）・ラベル分布・アクション別集計・
+      アプリ／ワークロード別・ユーザー分析・格下げ／削除の注視・ファイル分析を含む HTML レポートを
+      生成して Logic App 経由でメール送信します。DLP ルールは不要です。
+    Publisher: Custom
+    Product: Security
+    RequiredSkillsets:
+      - PurviewLabelUsageWeeklyReport
+    AgentSingleInstanceConstraint: Workspace
+    Triggers:
+      - Name: WeeklySchedule
+        DefaultPollPeriodSeconds: 604800
+        FetchSkill: ''
+        ProcessSkill: PurviewLabelUsageWeeklyReport.OrchestratePurviewLabelUsageWeeklyReport
+
+SkillGroups:
+  # ─────────────────────────────────────────────────
+  # Agent Orchestration Skill
+  # ─────────────────────────────────────────────────
+  - Format: Agent
+    Skills:
+      - Name: OrchestratePurviewLabelUsageWeeklyReport
+        DisplayName: Orchestrate Purview Label Usage Weekly Report
+        Description: >-
+          過去 7 日間（前週比のため過去 14 日間）の Purview 秘密度ラベルの利用状況
+          （付与／変更／削除）を Defender の CloudAppEvents から収集・集計し、視認性の高い
+          HTML レポートを生成して Logic App 経由でメール送信します。
+        Interfaces:
+          - Agent
+        Settings:
+          Model: gpt-4o
+          Instructions: |-
+            # ミッション
+            あなたは Microsoft Purview の秘密度ラベル「利用状況」週次レポートを作成する
+            情報保護アナリスト エージェントです。過去 7 日間（前週比のため過去 14 日間）の
+            ラベル アクティビティ（付与／変更／削除）を Microsoft Defender の Advanced Hunting
+            テーブル CloudAppEvents から収集・集計し、視認性の高い自己完結型 HTML レポートを
+            生成して、Logic App 経由でメール送信します。
+            このエージェントは **DLP ポリシー（ルール）を有効化していない環境**（ラベル付与のみを
+            行う環境）を主対象とします。DLP 違反・機密情報の種類（SIT）・ブロック／検知は扱いません。
+            レポートのすべてのテキストは**日本語**で記述してください。
+            英語のデータ（ユーザー名、ラベル名、アプリ名、ワークロード名等）はそのまま使用します。
+
+            # 重要ルール
+            - **複数スキルを並列で呼び出さないこと。** 必ず一度に一つのスキルのみを呼び出し、
+              レスポンスを受け取ってから次のスキルを呼び出す。
+            - スキル呼び出しが失敗またはエラーを返した場合はリトライせず、
+              そのセクションに「データ取得不可」と明記して次に進む。
+            - ChildSkills に列挙されたスキルのみを呼び出す。
+            - **事実のみを報告すること。** 推測は「※ 推定:」と明記する。
+            - **データが取得できなかった場合は「データなし」と記載し、架空のデータを生成しない。**
+            - **出力トークン制限（最優先）:** SendLabelReportEmail に渡す HTML 全文は
+              **16,000 文字以内**、`<style>` は **2,500 文字以内**、表のデータ行は全体で
+              **45 行以内**にする。上限へ近づいた場合は下位行、グラフ、補足文の順で削減する。
+              同じ数値を表・カード・グラフへ三重掲載しない。HTML コメント、SVG、base64、
+              JavaScript、装飾専用要素は生成しない。
+            - HTML は可読性に不要なインデント、空行、改行を除いたコンパクト形式で生成する。
+              16,000 文字に収まらない見込みなら、3-6 のファイル一覧、3-7 の下位サイト、
+              各傾向コメントの順で 1 行の要約へ置換する。途中で切れた HTML は送信せず、
+              必ず `</body></html>` まで含む完全な HTML を 16,000 文字以内で完成させる。
+            - 総アクティビティ数と付与・変更・削除の件数は **GetLabelActionSummary** の
+              ThisWeek / PreviousWeek だけから集計し、今週・前週ごとに必ず
+              `総アクティビティ数 = 付与 + 変更 + 削除` を検算する。件数は「約」を付けず実数で表示する。
+              一致しない場合は値を正常値として掲載せず、「集計不整合」と各値を明記する。
+            - **HTML レポートは必ず SendLabelReportEmail スキルの ReportHtml パラメーターに渡して
+              メール送信すること。** HTML をチャット/最終出力にそのまま貼り付けて終了してはならない。
+              レポートの配信手段はメールのみである。
+            - CloudAppEvents にラベル アクティビティのレコードが 1 件も存在しない場合は、HTML
+              レポート冒頭に「対象期間に Purview 秘密度ラベルの監査レコードが CloudAppEvents に
+              見つかりませんでした。M365 監査ログの Defender for Cloud Apps への取り込み
+              （アプリコネクタの『Microsoft 365 activities』有効化）、および統合監査ログの有効化を
+              確認してください。」という注意バナーを表示すること。
+
+            # 対象データと判別条件（CloudAppEvents）
+            - ラベル アクティビティ: `RawEventData.Operation` が以下のいずれかのレコード。
+              - 付与: `FileSensitivityLabelApplied` / `SensitivityLabelApplied` / `SiteSensitivityLabelApplied`
+              - 変更: `FileSensitivityLabelChanged` / `SensitivityLabelUpdated` /
+                `SensitivityLabelChanged` / `SiteSensitivityLabelChanged`
+              - 削除: `FileSensitivityLabelRemoved` / `SensitivityLabelRemoved` / `SiteSensitivityLabelRemoved`
+            - アクション分類（ActionCategory）: 付与 / 変更 / 削除。各スキルの ActionCategory 列を使用する。
+            - 適用ラベル: 複数のフィールドから抽出します
+              （`RawEventData.SensitivityLabelEventData.SensitivityLabelId` /
+              `RawEventData.SensitivityLabelId` / `RawEventData.LabelId`）。
+              ラベルは GUID のため、各スキル内の LabelMap 変換テーブルで名称に変換します
+              （データにラベル名が含まれる場合はそちらを優先）。未解決の GUID は GUID のまま表示します。
+            - 親ラベル / 子ラベル（サブラベル）: ログに記録されるのは適用された**子ラベルの GUID**のみで、
+              親ラベルの GUID や階層は含まれません。各スキルの LabelMap は `ParentName` 列を持ち、
+              親ラベル名が登録されている場合はラベルを「親 / 子」（例: `Confidential / All Employees`）で
+              表示します。**カスタムラベル・子ラベルの親子対応は、Security & Compliance PowerShell の
+              `Get-Label`（`ImmutableId` / `DisplayName` / `ParentId`）から取得して各スキルの LabelMap に
+              追記してください。** 親が未登録の場合は子ラベル名のみを表示します。
+            - 格上げ／格下げの判定: 変更イベントについて、旧ラベルと新ラベルの優先度（LabelMap の
+              Priority）を比較し、新 < 旧 を「格下げ（ダウングレード）」、新 > 旧 を「格上げ
+              （アップグレード）」とします。**これはヒューリスティックであり**、旧ラベル ID や優先度が
+              取得できない場合は「変更（不明）」となる旨をコメントで補足すること。
+            - アプリ／ワークロード: `Application` / `RawEventData.Workload`
+              （Word / Excel / PowerPoint / Outlook / SharePoint / OneDrive / Exchange / Teams 等）。
+
+            # ワークフロー
+
+            ## フェーズ 1: データ収集
+            1. **GetLabelActionSummary** を呼び出し、付与 / 変更 / 削除の固定 3 行について、
+              今週・前週・増減・14 日間合計を取得する。
+              → 対象期間の総数、エグゼクティブサマリー、3-2 アクション別集計の唯一の集計元に使用する。
+            2. **GetLabelActivitySummary** を呼び出し、過去 14 日間のラベル アクティビティ数を
+               週（今週 / 前週）× アクション（付与 / 変更 / 削除）× ワークロード × ラベル別に取得する。
+              → アプリ / ワークロード別の分析に使用する。総数や 3-2 の算出には使用しない。
+            3. **GetLabelDistribution** を呼び出し、ラベル別に週（今週 / 前週）× 付与 / 変更 / 削除の
+               内訳と、ユニークユーザー数・ユニークファイル数を取得する。→ ラベル分布に使用する。
+            4. **GetLabelActivityByUser** を呼び出し、ユーザー別のラベル アクティビティ数
+              （付与 / 変更 / 削除）を上位 8 件で取得する。→ ユーザー分析に使用する。
+            5. **GetLabelDowngradeRemoval** を呼び出し、格下げ（ダウングレード）・格上げ
+               （アップグレード）・ラベル削除のイベントを、週 × 種別 × ユーザー × 旧ラベル × 新ラベル別に
+               取得する（理由テキストがあれば併記）。→ 格下げ／削除の注視に使用する。
+            6. **GetLabelFileStatistics** を呼び出し、ラベル アクティビティの対象ファイルを、
+               ファイル種別（Excel / Word / PDF / PowerPoint / テキスト 等）× ラベル × 週別に集計し、
+               主なファイルパス（フォルダ）も取得する。→ ファイル分析に使用する。
+            7. **GetLabelBySharePointSite** を呼び出し、SharePoint サイト別のラベル付与数
+               （今週 / 前週、うち機密系ラベルの付与数）を機密系付与の多い順に取得する。
+               → サイト別分析（機密資料の所在把握）に使用する。
+
+            ## フェーズ 2: インサイトの統合
+            収集データから以下を算出・解釈する:
+              - 総ラベル アクティビティ数、付与数、変更数、削除数と前週比（%）
+              - 最も多く付与されているラベル、ラベルのカバレッジ（利用の広がり）
+              - 格下げ・削除の件数と傾向（過度な格下げ／削除がないか）
+              - 最もラベル付与が活発なアプリ／ワークロード、ユーザー
+              - 機密系ラベルの付与が多い SharePoint サイト（機密資料の所在・IT 部門が要注視すべきサイト）
+              - 総合傾向判定（活性 / 安定 / 低調 / 要注意）
+                ※ 要注意 = 格下げ・削除が突出、または特定ユーザーに削除が集中 など
+
+            ## フェーズ 3: HTML レポートの生成
+            自己完結型の HTML レポートを生成する。CSS はすべて `<style>` タグ内にインラインで記述し、
+            外部リソースや JavaScript は使用しない。チャートは CSS のみ（flexbox・比例幅の棒）で描画する。
+            すべてのテキストは日本語で記述する。データがない項目は「データなし」と明記する。
+
+            ### HTML レポート構成
+
+            #### ヘッダー
+            - タイトル: 「Purview 秘密度ラベル 利用状況 週次レポート」
+            - 対象期間（今週の日付範囲）、生成日時、データソース: Defender CloudAppEvents
+
+            #### 1. 対象期間
+            対象期間（今週の開始〜終了）、前週比較期間、生成日時を表で表示する。
+            今週／前週の総アクティビティ数（付与 / 変更 / 削除）も併記する。
+
+            #### 2. エグゼクティブサマリー
+            先週と今週を比較し、ラベル利用状況の傾向を 4〜6 文で記載する。
+            - 総アクティビティ数の前週比（増減 %）と方向感（▲赤 / ▼緑 / →グレー）
+            - 付与 / 変更 / 削除の比率とその変化
+            - 最も注目すべき変化（付与が増えたラベル、削除・格下げの増加など）
+            - 総合傾向判定バナー（活性 / 安定 / 低調 / 要注意）を色付きで表示
+
+            #### 3. ラベル利用状況 集計
+            以下の集計を表示する。各集計の傾向コメントは**最大 1 文（120 文字以内）**とする。
+
+            > **出力量の上限（トークン対策・必須）**: HTML の肥大化を防ぐため、各表の行数を必ず抑制する。
+            > - ラベル別の表（3-1）は**上位 8 行**まで。少数ラベルは親ラベルへ**ロールアップ**し
+            >   「その他（親ラベル名 ほか N 件）」として集約する。
+            > - ワークロードは上位 6 行、ユーザーは上位 8 行、格下げ・削除は上位 8 行、
+            >   ファイル種別は上位 5 行、ファイル一覧は上位 5 行、SharePoint サイトは上位 7 行とする。
+            > - 上限を超える分は「…ほか N 件」と要約し、生成 HTML 全体を過度に長くしない。
+            > - 横棒グラフは 3-1 と 3-2 だけに表示する。他セクションは表だけとする。
+
+            ##### 3-1. ラベル分布（上位 8）
+            ラベル | 今週 | 前週 | 増減 | 付与 | 変更 | 削除 | 対象ユーザー数 | 対象ファイル数 の
+            テーブルと横棒グラフ（CSS）。傾向コメント（1 文）: 最多付与ラベル、利用が広がっている
+            ラベル、ほとんど使われていないラベルなど。
+
+            ##### 3-2. アクション別集計（付与 / 変更 / 削除）
+            **GetLabelActionSummary の固定 3 行をそのまま使用し、他スキルから再集計しない。**
+            アクション（付与 / 変更 / 削除）| 今週 (ThisWeek) | 前週 (PreviousWeek) |
+            増減 (Difference) のテーブルと横棒グラフ（CSS）。
+            傾向コメント（1 文）: 付与が中心か、変更・削除の割合、前週比の変化など。
+
+            ##### 3-3. アプリ／ワークロード別
+            ワークロード（Word / Excel / PowerPoint / Outlook / SharePoint / OneDrive / Exchange /
+            Teams 等）| 今週 | 前週 | 付与 | 変更 | 削除 | 主なラベル のテーブル（上位 6 行）。
+            傾向コメント（1 文）: どのアプリでラベル付与が活発か、クライアントアプリ vs クラウドの比率、
+            新規に出現したワークロードなど。
+
+            ##### 3-4. ユーザー分析（上位 8）
+            ユーザー | 付与 | 変更 | 削除 | 合計 | 主なラベル のテーブル（合計降順で上位 8 行）。
+            上位 3 行は強調する。
+            傾向コメント（1 文）: ラベル付与が活発なユーザー、削除・変更が突出しているユーザー、
+            特定ユーザーへの偏りなど。
+            ※ ユーザー値がシステム/アプリプリンシパル（`APP@` で始まる等）の場合は、自動ラベル付与や
+            サービス側の処理による記録である旨をコメントで補足する。
+
+            ##### 3-5. 格下げ・削除の注視（リスク）
+            種別（格下げ / 格上げ / 削除 / 変更（不明））| 今週 | 前週 | ユーザー | 旧ラベル → 新ラベル |
+            主なファイル | 理由 のテーブル（上位 8 行）。**格下げ・削除を強調表示**する。
+            傾向コメント（1 文）: 格下げ・削除の多寡、理由の記載状況、繰り返し格下げ／削除している
+            ユーザーやファイルなど。データがない場合は「データなし」と明記する。
+            ※ 格上げ／格下げは旧・新ラベルの優先度比較によるヒューリステックであり、旧ラベルや優先度が
+            取得できないと「変更（不明）」となる旨を必ず補足する。
+
+            ##### 3-6. ファイル分析（種別・ファイル名・ディレクトリ）
+            ラベル アクティビティの対象ファイルを、GetLabelFileStatistics の結果から集計する。
+            - **ファイル種別別サマリ**: ファイル種別（Excel / Word / PDF / PowerPoint / テキスト 等）|
+              今週 | 前週 | 件数 | 主なラベル のテーブル（上位 5 行）。
+            - **主な対象ファイル一覧**: ファイル名とフォルダ（ディレクトリ）を実値で記載する。
+              マスキング・省略はしない。件数上位 5 行に限定する。
+            傾向コメント（1 文）: ラベルが付与されている主なファイル種別、特定フォルダへの集中、
+            繰り返し出現するファイルなど。データがない場合は「データなし」と明記する。
+
+            ##### 3-7. SharePoint サイト別 ラベル付与（機密資料の所在把握）
+            GetLabelBySharePointSite の結果から、SharePoint サイト別に以下をテーブルと
+            横棒グラフ（CSS）で表示する: サイト（URL）| 今週の付与 | 前週の付与 |
+            うち機密系（今週）| 主なラベル | 対象ユーザー数。
+            **機密系ラベル（Confidential / Restricted / Strictly Confidential / Highly Confidential 等）の
+            付与が多いサイトを上位に強調表示**する（上位 7 サイトまで）。
+            傾向コメント（1 文）: 機密資料の付与が集中しているサイト、前週から増加したサイト、
+            IT 部門が把握できていない可能性のある新規サイトなど。データがない場合は「データなし」と明記する。
+            ※ サイト URL が「不明」の行は、SiteUrl / ObjectId からサイトを特定できなかった
+            レコード（メタデータ欠落等）である旨を補足する。
+
+            #### フッター
+            - 「本レポートは Security Copilot エージェントにより自動生成されました。」
+            - データソース: Defender CloudAppEvents（Purview 統合監査ログ / 秘密度ラベル アクティビティ）
+            - 生成日時、機密表示
+
+            ### CSS スタイル要件（メイリオ統一・ブルー基調・高視認性）
+            - フォント: **すべての要素で `'Meiryo','メイリオ',sans-serif` に統一する。**
+              body・見出し・表・グラフ・ラベル・フッターを含め、他のフォントファミリを混在させない
+              （`font-family` は body に一括指定し、個別要素で上書きしない）。
+            - 配色は**ブルー基調で統一**し、文字と背景のコントラストを高く保って可読性を最優先する
+              （目安コントラスト比 4.5:1 以上、色のみに依存せず数値・ラベル文字も必ず併記する）。
+            - 背景色: #EAF1FB（淡いブルーグレー）、カード背景: #FFFFFF、
+              本文テキスト: #16263D（濃紺・高コントラスト）
+            - プライマリ（ヘッダー帯・セクション見出し・表ヘッダー）: #0F3D6E（濃紺、文字は #FFFFFF）
+            - アクセント: #0078D4（Azure Blue）、強調/リンク: #005A9E、境界線: #C7D9EE
+            - 表: ヘッダー背景 #0F3D6E＋白文字、ゼブラ縞（偶数行 #F2F7FD）、罫線 #C7D9EE で視認性を確保
+            - 横棒グラフ: ブルー濃淡（濃 #0F3D6E → #0078D4 → 淡 #6BB1EA）で値の大小を表現する
+            - アクション色: 付与=#0078D4（ブルー）、変更=#F2A100（アンバー）、削除=#B00020
+              （ブルー基調の中で注意を明示する高視認の赤）。凡例を必ず表示する。
+            - 傾向判定バナー: 活性=#0F3D6E、安定=#0078D4、低調=#6BB1EA、要注意=#B00020
+              （いずれも白文字で高視認）
+            - **レポート本文の外枠は必ず `.report-container` とし、`width: calc(100% - 32px);`
+              `max-width: 760px; margin: 16px auto;` を指定する。760px を超える固定幅を設定しない。**
+            - セクション、カード、グラフは `width: 100%; max-width: 100%; box-sizing: border-box;` とし、
+              `.report-container` の外へはみ出させない。本文カードの左右余白は 16〜20px とする。
+            - すべての表を `.table-wrap` で囲み、`.table-wrap { width: 100%; overflow-x: auto; }`、
+              `table { width: 100%; max-width: 100%; border-collapse: collapse; }` を指定する。
+              URL・ファイルパス・ラベル名を含むセルは `overflow-wrap: anywhere; word-break: break-word;` で折り返す。
+            - 画面幅 600px 以下では `.report-container { width: 100%; margin: 0; }` とし、
+              セクション余白を 12px に縮小する。列数の多い表だけ `.table-wrap` 内で横スクロール可能にする。
+            - カードシャドウ: 0 2px 8px rgba(15,61,110,0.12)。@media print では
+              `.report-container { width: 100%; max-width: 760px; margin: 0 auto; }` とする。
+
+            ## フェーズ 4: メール送信（必須・最終ステップ）
+            5. 生成した HTML レポートの**全文**を、**SendLabelReportEmail** スキルの
+               `ReportHtml` パラメーターに渡して呼び出す。
+               - `ReportHtml` には `<!DOCTYPE html>` から `</html>` までの完全な HTML 文字列を渡す。
+                 一部の抜粋・要約・省略（「...」等）をしてはならない。
+               - HTML 内の CSS は `<style>` タグ内にインラインで含める（外部参照は不可）。
+               - このスキル呼び出しは**必須**であり、省略・スキップしてはならない。
+               - たとえデータが無い場合でも、注意バナー付きの HTML を生成し、必ず送信する。
+               - SendLabelReportEmail がエラーを返した場合のみ、出力にその旨を明記する。
+
+            # 出力
+            **必ず SendLabelReportEmail を呼び出した後に**、メール送信の結果ステータスと、
+            3 行のサマリ（総アクティビティ数 / 付与・変更・削除の内訳 / 最多ラベル・最も活発な
+            アプリ・傾向判定根拠）を日本語で返す。HTML 本文は出力に含めない（メールで配信済みのため）。
+        ChildSkills:
+          - GetLabelActionSummary
+          - GetLabelActivitySummary
+          - GetLabelDistribution
+          - GetLabelActivityByUser
+          - GetLabelDowngradeRemoval
+          - GetLabelFileStatistics
+          - GetLabelBySharePointSite
+          - SendLabelReportEmail
+
+  # ─────────────────────────────────────────────────
+  # KQL Skills — Defender Advanced Hunting (CloudAppEvents)
+  # ─────────────────────────────────────────────────
+  - Format: KQL
+    Skills:
+      # ---- アクション別の全件集計（固定 3 行） ----
+      - Name: GetLabelActionSummary
+        DisplayName: Get Sensitivity Label Action Summary
+        Description: >-
+          CloudAppEvents の秘密度ラベル アクティビティ全件を、付与 / 変更 / 削除の固定 3 行で
+          今週・前週・増減・14 日間合計に集計します。3-2 アクション別集計と総数検算の正となるスキルです。
+        Settings:
+          Target: Defender
+          Template: |-
+            let appliedOps = dynamic([
+              "FileSensitivityLabelApplied","SensitivityLabelApplied","SiteSensitivityLabelApplied"
+            ]);
+            let changedOps = dynamic([
+              "FileSensitivityLabelChanged","SensitivityLabelUpdated","SensitivityLabelChanged","SiteSensitivityLabelChanged"
+            ]);
+            let removedOps = dynamic([
+              "FileSensitivityLabelRemoved","SensitivityLabelRemoved","SiteSensitivityLabelRemoved"
+            ]);
+            let ActualCounts = CloudAppEvents
+            | where Timestamp > ago(14d)
+            | extend Operation = tostring(RawEventData.Operation)
+            | where Operation in (appliedOps) or Operation in (changedOps) or Operation in (removedOps)
+            | extend ActionCategory = case(
+                Operation in (appliedOps), "付与",
+                Operation in (changedOps), "変更",
+                Operation in (removedOps), "削除",
+                "その他")
+            | summarize ThisWeek = countif(Timestamp > ago(7d)),
+                        PreviousWeek = countif(Timestamp <= ago(7d))
+              by ActionCategory
+            | extend SortOrder = tolong(case(ActionCategory == "付与", 1, ActionCategory == "変更", 2, 3));
+            datatable(ActionCategory:string, SortOrder:long, ThisWeek:long, PreviousWeek:long)
+            [
+              "付与",1,0,0,
+              "変更",2,0,0,
+              "削除",3,0,0
+            ]
+            | union ActualCounts
+            | summarize ThisWeek = sum(ThisWeek), PreviousWeek = sum(PreviousWeek)
+              by ActionCategory, SortOrder
+            | extend Difference = ThisWeek - PreviousWeek,
+                     Total14Days = ThisWeek + PreviousWeek
+            | sort by SortOrder asc
+            | project ActionCategory, ThisWeek, PreviousWeek, Difference, Total14Days
+            | take 3
+
+      # ---- ラベル アクティビティ数（週 × アクション × ワークロード × ラベル） ----
+      - Name: GetLabelActivitySummary
+        DisplayName: Get Sensitivity Label Activity Summary
+        Description: >-
+          CloudAppEvents の秘密度ラベル アクティビティ（付与 / 変更 / 削除）を、過去 14 日間で
+          週（今週 / 前週）× アクション（付与 / 変更 / 削除）× ワークロード × 適用ラベル別に集計します。
+          DLP ルールは不要で、ラベル付与のみの環境で動作します。
+        Settings:
+          Target: Defender
+          Template: |-
+            let labelOps = dynamic([
+              "FileSensitivityLabelApplied","SensitivityLabelApplied","SiteSensitivityLabelApplied",
+              "FileSensitivityLabelChanged","SensitivityLabelUpdated","SensitivityLabelChanged","SiteSensitivityLabelChanged",
+              "FileSensitivityLabelRemoved","SensitivityLabelRemoved","SiteSensitivityLabelRemoved"
+            ]);
+            let LabelMap = datatable(LabelGuid:string, LabelName:string, ParentName:string, Priority:int)
+            [
+              "defa4170-0d19-0005-0000-bc88714345d2","Personal","",0,
+              "defa4170-0d19-0005-0001-bc88714345d2","Public","",1,
+              "defa4170-0d19-0005-0002-bc88714345d2","General","",2,
+              "defa4170-0d19-0005-0003-bc88714345d2","Confidential","",3,
+              "defa4170-0d19-0005-0004-bc88714345d2","All Employees (unrestricted)","",4,
+              "defa4170-0d19-0005-0005-bc88714345d2","Confidential","",5,
+              "defa4170-0d19-0005-0006-bc88714345d2","Anyone (unrestricted)","",6,
+              "defa4170-0d19-0005-0007-bc88714345d2","All Employees","",7,
+              "defa4170-0d19-0005-0008-bc88714345d2","Trusted People","",8,
+              "defa4170-0d19-0005-0009-bc88714345d2","Highly Confidential","",9,
+              "6a6067cf-b972-45c0-a5ee-1ac16535698b","Finance","",10
+              // カスタム/子ラベルは Get-Label の ImmutableId(GUID) / DisplayName / 親ラベル名を追記:
+              //   "<custom-guid>","<子ラベル名>","<親ラベル名>",<Priority>
+            ];
+            CloudAppEvents
+            | where Timestamp > ago(14d)
+            | extend Operation = tostring(RawEventData.Operation)
+            | where Operation in (labelOps)
+            | extend Week = iff(Timestamp > ago(7d), "今週", "前週")
+            | extend ActionCategory = case(
+              Operation endswith "Removed", "削除",
+              Operation endswith "Changed" or Operation endswith "Updated", "変更",
+              Operation endswith "Applied", "付与",
+                "その他")
+            | extend Workload = coalesce(tostring(RawEventData.Workload), Application, "不明")
+            | extend SLE = parse_json(tostring(RawEventData.SensitivityLabelEventData))
+            | extend LabelGUID = coalesce(tostring(SLE.SensitivityLabelId), tostring(RawEventData.SensitivityLabelId), tostring(RawEventData.LabelId), "")
+            | lookup kind=leftouter LabelMap on $left.LabelGUID == $right.LabelGuid
+            | extend Label = coalesce(iff(isnotempty(ParentName), strcat(ParentName, " / ", LabelName), LabelName), iff(isnotempty(LabelGUID), LabelGUID, ""), "ラベルなし/不明")
+            | summarize Activities = count() by Week, ActionCategory, Workload, Label
+            | sort by Activities desc
+            | take 40
+
+      # ---- ラベル分布（ラベル × 週 × 付与/変更/削除、ユーザー/ファイル数） ----
+      - Name: GetLabelDistribution
+        DisplayName: Get Sensitivity Label Distribution
+        Description: >-
+          CloudAppEvents の秘密度ラベル アクティビティを、適用ラベル別に週（今週 / 前週）×
+          付与 / 変更 / 削除の内訳で集計し、対象ユニークユーザー数・ユニークファイル数を併記します。
+          ラベルの利用の広がり（カバレッジ）を把握します。
+        Settings:
+          Target: Defender
+          Template: |-
+            let labelOps = dynamic([
+              "FileSensitivityLabelApplied","SensitivityLabelApplied","SiteSensitivityLabelApplied",
+              "FileSensitivityLabelChanged","SensitivityLabelUpdated","SensitivityLabelChanged","SiteSensitivityLabelChanged",
+              "FileSensitivityLabelRemoved","SensitivityLabelRemoved","SiteSensitivityLabelRemoved"
+            ]);
+            let LabelMap = datatable(LabelGuid:string, LabelName:string, ParentName:string, Priority:int)
+            [
+              "defa4170-0d19-0005-0000-bc88714345d2","Personal","",0,
+              "defa4170-0d19-0005-0001-bc88714345d2","Public","",1,
+              "defa4170-0d19-0005-0002-bc88714345d2","General","",2,
+              "defa4170-0d19-0005-0003-bc88714345d2","Confidential","",3,
+              "defa4170-0d19-0005-0004-bc88714345d2","All Employees (unrestricted)","",4,
+              "defa4170-0d19-0005-0005-bc88714345d2","Confidential","",5,
+              "defa4170-0d19-0005-0006-bc88714345d2","Anyone (unrestricted)","",6,
+              "defa4170-0d19-0005-0007-bc88714345d2","All Employees","",7,
+              "defa4170-0d19-0005-0008-bc88714345d2","Trusted People","",8,
+              "defa4170-0d19-0005-0009-bc88714345d2","Highly Confidential","",9,
+              "6a6067cf-b972-45c0-a5ee-1ac16535698b","Finance","",10
+              // カスタム/子ラベルは Get-Label の ImmutableId(GUID) / DisplayName / 親ラベル名を追記:
+              //   "<custom-guid>","<子ラベル名>","<親ラベル名>",<Priority>
+            ];
+            CloudAppEvents
+            | where Timestamp > ago(14d)
+            | extend Operation = tostring(RawEventData.Operation)
+            | where Operation in (labelOps)
+            | extend Week = iff(Timestamp > ago(7d), "今週", "前週")
+            | extend ActionCategory = case(
+              Operation endswith "Removed", "削除",
+              Operation endswith "Changed" or Operation endswith "Updated", "変更",
+              Operation endswith "Applied", "付与",
+                "その他")
+            | extend SLE = parse_json(tostring(RawEventData.SensitivityLabelEventData))
+            | extend LabelGUID = coalesce(tostring(SLE.SensitivityLabelId), tostring(RawEventData.SensitivityLabelId), tostring(RawEventData.LabelId), "")
+            | lookup kind=leftouter LabelMap on $left.LabelGUID == $right.LabelGuid
+            | extend Label = coalesce(iff(isnotempty(ParentName), strcat(ParentName, " / ", LabelName), LabelName), iff(isnotempty(LabelGUID), LabelGUID, ""), "ラベルなし/不明")
+            | extend UserKey = coalesce(AccountDisplayName, tostring(RawEventData.UserId), AccountId, "不明")
+            | extend FileKey = tostring(RawEventData.ObjectId)
+            | summarize Applied = countif(ActionCategory == "付与"),
+                        Changed = countif(ActionCategory == "変更"),
+                        Removed = countif(ActionCategory == "削除"),
+                        Activities = count(),
+                        Users = dcount(UserKey),
+                        Files = dcountif(FileKey, isnotempty(FileKey))
+              by Label, Week
+            | sort by Activities desc
+            | take 20
+
+      # ---- ユーザー分析（ユーザー × 付与/変更/削除、上位 8） ----
+      - Name: GetLabelActivityByUser
+        DisplayName: Get Sensitivity Label Activity by User (Top 8)
+        Description: >-
+          CloudAppEvents の秘密度ラベル アクティビティを、ユーザー別に付与 / 変更 / 削除の内訳で
+          集計し、合計の多い順に上位 8 件を返します。主な適用ラベルも併記し、特定ユーザーへの偏りや
+          削除・変更の突出を把握します。
+        Settings:
+          Target: Defender
+          Template: |-
+            let labelOps = dynamic([
+              "FileSensitivityLabelApplied","SensitivityLabelApplied","SiteSensitivityLabelApplied",
+              "FileSensitivityLabelChanged","SensitivityLabelUpdated","SensitivityLabelChanged","SiteSensitivityLabelChanged",
+              "FileSensitivityLabelRemoved","SensitivityLabelRemoved","SiteSensitivityLabelRemoved"
+            ]);
+            let LabelMap = datatable(LabelGuid:string, LabelName:string, ParentName:string, Priority:int)
+            [
+              "defa4170-0d19-0005-0000-bc88714345d2","Personal","",0,
+              "defa4170-0d19-0005-0001-bc88714345d2","Public","",1,
+              "defa4170-0d19-0005-0002-bc88714345d2","General","",2,
+              "defa4170-0d19-0005-0003-bc88714345d2","Confidential","",3,
+              "defa4170-0d19-0005-0004-bc88714345d2","All Employees (unrestricted)","",4,
+              "defa4170-0d19-0005-0005-bc88714345d2","Confidential","",5,
+              "defa4170-0d19-0005-0006-bc88714345d2","Anyone (unrestricted)","",6,
+              "defa4170-0d19-0005-0007-bc88714345d2","All Employees","",7,
+              "defa4170-0d19-0005-0008-bc88714345d2","Trusted People","",8,
+              "defa4170-0d19-0005-0009-bc88714345d2","Highly Confidential","",9,
+              "6a6067cf-b972-45c0-a5ee-1ac16535698b","Finance","",10
+              // カスタム/子ラベルは Get-Label の ImmutableId(GUID) / DisplayName / 親ラベル名を追記:
+              //   "<custom-guid>","<子ラベル名>","<親ラベル名>",<Priority>
+            ];
+            CloudAppEvents
+            | where Timestamp > ago(14d)
+            | extend Operation = tostring(RawEventData.Operation)
+            | where Operation in (labelOps)
+            | extend ActionCategory = case(
+              Operation endswith "Removed", "削除",
+              Operation endswith "Changed" or Operation endswith "Updated", "変更",
+              Operation endswith "Applied", "付与",
+                "その他")
+            | extend SLE = parse_json(tostring(RawEventData.SensitivityLabelEventData))
+            | extend LabelGUID = coalesce(tostring(SLE.SensitivityLabelId), tostring(RawEventData.SensitivityLabelId), tostring(RawEventData.LabelId), "")
+            | lookup kind=leftouter LabelMap on $left.LabelGUID == $right.LabelGuid
+            | extend Label = coalesce(iff(isnotempty(ParentName), strcat(ParentName, " / ", LabelName), LabelName), iff(isnotempty(LabelGUID), LabelGUID, ""), "ラベルなし/不明")
+            | extend User = coalesce(AccountDisplayName, tostring(RawEventData.UserId), AccountId, "不明")
+            | summarize Applied = countif(ActionCategory == "付与"),
+                        Changed = countif(ActionCategory == "変更"),
+                        Removed = countif(ActionCategory == "削除"),
+                        Total = count(),
+                        Labels = make_set(Label, 3)
+              by User
+            | sort by Total desc
+            | take 8
+
+      # ---- 格下げ・削除の注視（旧→新ラベル、理由） ----
+      - Name: GetLabelDowngradeRemoval
+        DisplayName: Get Sensitivity Label Downgrades and Removals
+        Description: >-
+          CloudAppEvents の秘密度ラベル「変更」「削除」イベントを対象に、旧ラベルと新ラベルの
+          優先度（LabelMap の Priority）を比較して格下げ（ダウングレード）／格上げ（アップグレード）
+          を判定し、ラベル削除と併せて、週 × 種別 × ユーザー × 旧ラベル → 新ラベル別に集計します。
+          理由テキスト（Justification）があれば併記します。旧ラベル/優先度が取得できない場合は
+          「変更（不明）」に分類します（ヒューリスティック）。
+        Settings:
+          Target: Defender
+          Template: |-
+            let changeOps = dynamic([
+              "FileSensitivityLabelChanged","SensitivityLabelUpdated","SensitivityLabelChanged","SiteSensitivityLabelChanged",
+              "FileSensitivityLabelRemoved","SensitivityLabelRemoved","SiteSensitivityLabelRemoved"
+            ]);
+            let LabelMap = datatable(LabelGuid:string, LabelName:string, ParentName:string, Priority:int)
+            [
+              "defa4170-0d19-0005-0000-bc88714345d2","Personal","",0,
+              "defa4170-0d19-0005-0001-bc88714345d2","Public","",1,
+              "defa4170-0d19-0005-0002-bc88714345d2","General","",2,
+              "defa4170-0d19-0005-0003-bc88714345d2","Confidential","",3,
+              "defa4170-0d19-0005-0004-bc88714345d2","All Employees (unrestricted)","",4,
+              "defa4170-0d19-0005-0005-bc88714345d2","Confidential","",5,
+              "defa4170-0d19-0005-0006-bc88714345d2","Anyone (unrestricted)","",6,
+              "defa4170-0d19-0005-0007-bc88714345d2","All Employees","",7,
+              "defa4170-0d19-0005-0008-bc88714345d2","Trusted People","",8,
+              "defa4170-0d19-0005-0009-bc88714345d2","Highly Confidential","",9,
+              "6a6067cf-b972-45c0-a5ee-1ac16535698b","Finance","",10
+              // カスタム/子ラベルは Get-Label の ImmutableId(GUID) / DisplayName / 親ラベル名を追記:
+              //   "<custom-guid>","<子ラベル名>","<親ラベル名>",<Priority>
+            ];
+            CloudAppEvents
+            | where Timestamp > ago(14d)
+            | extend Operation = tostring(RawEventData.Operation)
+            | where Operation in (changeOps)
+            | extend Week = iff(Timestamp > ago(7d), "今週", "前週")
+            | extend IsRemoval = Operation endswith "Removed"
+            | extend SLE = parse_json(tostring(RawEventData.SensitivityLabelEventData))
+            | extend NewGUID = coalesce(tostring(SLE.SensitivityLabelId), tostring(RawEventData.SensitivityLabelId), tostring(RawEventData.LabelId), "")
+            | extend OldGUID = coalesce(tostring(SLE.OldSensitivityLabelId), tostring(RawEventData.OldSensitivityLabelId), "")
+            | extend Justification = coalesce(tostring(SLE.JustificationText), tostring(RawEventData.JustificationText), "")
+            | extend User = coalesce(AccountDisplayName, tostring(RawEventData.UserId), AccountId, "不明")
+            | extend FileName = coalesce(tostring(RawEventData.SourceFileName), tostring(RawEventData.ObjectName), tostring(parse_path(tostring(RawEventData.ObjectId)).Filename), tostring(RawEventData.ObjectId))
+            | lookup kind=leftouter LabelMap on $left.NewGUID == $right.LabelGuid
+            | extend NewLabel = coalesce(iff(isnotempty(ParentName), strcat(ParentName, " / ", LabelName), LabelName), iff(isnotempty(NewGUID), NewGUID, "（なし）")), NewPriority = Priority
+            | project-away LabelName, ParentName, Priority
+            | join kind=leftouter (LabelMap | extend OldLabel = iff(isnotempty(ParentName), strcat(ParentName, " / ", LabelName), LabelName) | project LabelGuid, OldLabel, OldPriority = Priority) on $left.OldGUID == $right.LabelGuid
+            | extend OldLabel = coalesce(OldLabel, iff(isnotempty(OldGUID), OldGUID, "（不明）"))
+            | extend ChangeType = case(
+                IsRemoval, "削除",
+                isnotnull(OldPriority) and isnotnull(NewPriority) and NewPriority < OldPriority, "格下げ(ダウングレード)",
+                isnotnull(OldPriority) and isnotnull(NewPriority) and NewPriority > OldPriority, "格上げ(アップグレード)",
+                "変更(不明)")
+            | summarize Events = count(),
+                        Files = make_set(FileName, 3),
+                        Justifications = make_set(Justification, 3)
+              by Week, ChangeType, User, OldLabel, NewLabel
+            | sort by Events desc
+            | take 16
+
+      # ---- ファイル分析（種別・パス・ラベル） ----
+      - Name: GetLabelFileStatistics
+        DisplayName: Get Sensitivity Label File Statistics (Type and Path)
+        Description: >-
+          CloudAppEvents の秘密度ラベル アクティビティの対象ファイルを、ファイル種別
+          （Excel / Word / PDF / PowerPoint / テキスト 等）× 適用ラベル × 週別に集計し、
+          ファイルパス（フォルダ）とサンプルファイル名も返します。ファイル名・パスは
+          RawEventData.SourceFileName / ObjectName / ObjectId から抽出します。
+        Settings:
+          Target: Defender
+          Template: |-
+            let labelOps = dynamic([
+              "FileSensitivityLabelApplied","SensitivityLabelApplied","SiteSensitivityLabelApplied",
+              "FileSensitivityLabelChanged","SensitivityLabelUpdated","SensitivityLabelChanged","SiteSensitivityLabelChanged",
+              "FileSensitivityLabelRemoved","SensitivityLabelRemoved","SiteSensitivityLabelRemoved"
+            ]);
+            let LabelMap = datatable(LabelGuid:string, LabelName:string, ParentName:string, Priority:int)
+            [
+              "defa4170-0d19-0005-0000-bc88714345d2","Personal","",0,
+              "defa4170-0d19-0005-0001-bc88714345d2","Public","",1,
+              "defa4170-0d19-0005-0002-bc88714345d2","General","",2,
+              "defa4170-0d19-0005-0003-bc88714345d2","Confidential","",3,
+              "defa4170-0d19-0005-0004-bc88714345d2","All Employees (unrestricted)","",4,
+              "defa4170-0d19-0005-0005-bc88714345d2","Confidential","",5,
+              "defa4170-0d19-0005-0006-bc88714345d2","Anyone (unrestricted)","",6,
+              "defa4170-0d19-0005-0007-bc88714345d2","All Employees","",7,
+              "defa4170-0d19-0005-0008-bc88714345d2","Trusted People","",8,
+              "defa4170-0d19-0005-0009-bc88714345d2","Highly Confidential","",9,
+              "6a6067cf-b972-45c0-a5ee-1ac16535698b","Finance","",10
+              // カスタム/子ラベルは Get-Label の ImmutableId(GUID) / DisplayName / 親ラベル名を追記:
+              //   "<custom-guid>","<子ラベル名>","<親ラベル名>",<Priority>
+            ];
+            CloudAppEvents
+            | where Timestamp > ago(14d)
+            | extend Operation = tostring(RawEventData.Operation)
+            | where Operation in (labelOps)
+            | extend Week = iff(Timestamp > ago(7d), "今週", "前週")
+            | extend SLE = parse_json(tostring(RawEventData.SensitivityLabelEventData))
+            | extend LabelGUID = coalesce(tostring(SLE.SensitivityLabelId), tostring(RawEventData.SensitivityLabelId), tostring(RawEventData.LabelId), "")
+            | lookup kind=leftouter LabelMap on $left.LabelGUID == $right.LabelGuid
+            | extend Label = coalesce(iff(isnotempty(ParentName), strcat(ParentName, " / ", LabelName), LabelName), iff(isnotempty(LabelGUID), LabelGUID, ""), "ラベルなし/不明")
+            | extend FileName = coalesce(tostring(RawEventData.SourceFileName), tostring(RawEventData.ObjectName), tostring(parse_path(tostring(RawEventData.ObjectId)).Filename), tostring(RawEventData.ObjectId))
+            | extend FileName = iff(isnotempty(FileName), url_decode(FileName), FileName)
+            | extend FilePathRaw = coalesce(tostring(RawEventData.SourceRelativeUrl), tostring(RawEventData.ObjectId), "")
+            | extend FilePathDecoded = iff(isnotempty(FilePathRaw), url_decode(FilePathRaw), "")
+            | extend Folder = iff(isnotempty(FilePathDecoded), tostring(parse_path(FilePathDecoded).DirectoryPath), "")
+            | extend FileExt = tolower(extract(@"\.([A-Za-z0-9]{1,6})$", 1, FileName))
+            | extend FileType = case(
+                FileExt in ("xlsx","xls","xlsm","xlsb","csv"), "Excel/表計算",
+                FileExt in ("docx","doc","docm"), "Word",
+                FileExt == "pdf", "PDF",
+                FileExt in ("pptx","ppt","pptm"), "PowerPoint",
+                FileExt in ("txt","rtf"), "テキスト",
+                FileExt in ("zip","rar","7z"), "圧縮ファイル",
+                FileExt in ("png","jpg","jpeg","gif","bmp","tif","tiff"), "画像",
+                isnotempty(FileExt), strcat("その他 (.", FileExt, ")"),
+                "不明")
+            | extend FileLocation = strcat(FileName, "  ←  ", Folder)
+            | summarize Count = count(),
+                        Labels = make_set(Label, 3),
+                        FileLocations = make_set(FileLocation, 4)
+              by Week, FileType
+            | sort by Count desc
+            | take 12
+      # ---- SharePoint サイト別 ラベル付与（機密資料の所在把握） ----
+      - Name: GetLabelBySharePointSite
+        DisplayName: Get Sensitivity Label Applications by SharePoint Site
+        Description: >-
+          CloudAppEvents の SharePoint（RawEventData.Workload に SharePoint を含む）における
+          秘密度ラベル アクティビティを、サイト（RawEventData.SiteUrl / ObjectId の URL から抽出）
+          別に集計します。サイトごとのラベル付与数（今週 / 前週）、うち機密系ラベル
+          （Confidential / Restricted / Strictly Confidential / Highly Confidential 系）の付与数、
+          主な適用ラベル、対象ユーザー数を返し、機密資料が多く保存されているサイトの
+          把握に使用します。機密系付与数の多い順に Top 30。
+        Settings:
+          Target: Defender
+          Template: |-
+            let labelOps = dynamic([
+              "FileSensitivityLabelApplied","SensitivityLabelApplied","SiteSensitivityLabelApplied",
+              "FileSensitivityLabelChanged","SensitivityLabelUpdated","SensitivityLabelChanged","SiteSensitivityLabelChanged",
+              "FileSensitivityLabelRemoved","SensitivityLabelRemoved","SiteSensitivityLabelRemoved"
+            ]);
+            let LabelMap = datatable(LabelGuid:string, LabelName:string, ParentName:string, Priority:int)
+            [
+              "defa4170-0d19-0005-0000-bc88714345d2","Personal","",0,
+              "defa4170-0d19-0005-0001-bc88714345d2","Public","",1,
+              "defa4170-0d19-0005-0002-bc88714345d2","General","",2,
+              "defa4170-0d19-0005-0003-bc88714345d2","Confidential","",3,
+              "defa4170-0d19-0005-0004-bc88714345d2","All Employees (unrestricted)","",4,
+              "defa4170-0d19-0005-0005-bc88714345d2","Confidential","",5,
+              "defa4170-0d19-0005-0006-bc88714345d2","Anyone (unrestricted)","",6,
+              "defa4170-0d19-0005-0007-bc88714345d2","All Employees","",7,
+              "defa4170-0d19-0005-0008-bc88714345d2","Trusted People","",8,
+              "defa4170-0d19-0005-0009-bc88714345d2","Highly Confidential","",9,
+              "6a6067cf-b972-45c0-a5ee-1ac16535698b","Finance","",10
+              // カスタム/子ラベルは Get-Label の ImmutableId(GUID) / DisplayName / 親ラベル名を追記:
+              //   "<custom-guid>","<子ラベル名>","<親ラベル名>",<Priority>
+            ];
+            CloudAppEvents
+            | where Timestamp > ago(14d)
+            | extend Operation = tostring(RawEventData.Operation)
+            | where Operation in (labelOps)
+            | extend Workload = coalesce(tostring(RawEventData.Workload), Application, "不明")
+            | where Workload has "SharePoint"
+            | extend Week = iff(Timestamp > ago(7d), "今週", "前週")
+            | extend ActionCategory = case(
+              Operation endswith "Removed", "削除",
+              Operation endswith "Changed" or Operation endswith "Updated", "変更",
+              Operation endswith "Applied", "付与",
+                "その他")
+            | extend SiteUrlRaw = tostring(RawEventData.SiteUrl)
+            | extend ObjId = tostring(RawEventData.ObjectId)
+            | extend Site = coalesce(iff(isnotempty(SiteUrlRaw), SiteUrlRaw, ""), extract(@"(https?://[^/]+/sites/[^/]+)", 1, ObjId), extract(@"(https?://[^/]+/teams/[^/]+)", 1, ObjId), "不明")
+            | extend Site = trim_end(@"/+", Site)
+            | extend SLE = parse_json(tostring(RawEventData.SensitivityLabelEventData))
+            | extend LabelGUID = coalesce(tostring(SLE.SensitivityLabelId), tostring(RawEventData.SensitivityLabelId), tostring(RawEventData.LabelId), "")
+            | lookup kind=leftouter LabelMap on $left.LabelGUID == $right.LabelGuid
+            | extend Label = coalesce(iff(isnotempty(ParentName), strcat(ParentName, " / ", LabelName), LabelName), iff(isnotempty(LabelGUID), LabelGUID, ""), "ラベルなし/不明")
+            | extend LabelLc = tolower(strcat(ParentName, " ", LabelName))
+            | extend IsConfidential = LabelLc has_any ("confidential","restricted")
+            | extend UserKey = coalesce(AccountDisplayName, tostring(RawEventData.UserId), AccountId, "不明")
+            | summarize AppliedThisWeek = countif(ActionCategory == "付与" and Week == "今週"),
+                        AppliedPrevWeek = countif(ActionCategory == "付与" and Week == "前週"),
+                        ConfidentialAppliedThisWeek = countif(ActionCategory == "付与" and Week == "今週" and IsConfidential),
+                        ConfidentialAppliedPrevWeek = countif(ActionCategory == "付与" and Week == "前週" and IsConfidential),
+                        AllActivities = count(),
+                        Users = dcount(UserKey),
+                        TopLabels = make_set(Label, 3)
+              by Site
+            | sort by ConfidentialAppliedThisWeek desc, AppliedThisWeek desc
+            | take 14
+  # ─────────────────────────────────────────────────
+  # LogicApp Skill — HTML レポートのメール送信
+  # ─────────────────────────────────────────────────
+  - Format: LogicApp
+    Skills:
+      - Name: SendLabelReportEmail
+        DisplayName: Send Purview Label Usage Weekly Report Email
+        Description: >-
+          生成した HTML レポートを、Office 365 コネクタを持つ Azure Logic App 経由で
+          配信先メールボックスに送信します。
+        Inputs:
+          - Name: ReportHtml
+            Description: 送信する Purview 秘密度ラベル利用状況 週次レポートの HTML 全文
+            Required: true
+        Settings:
+          SubscriptionId: "{{LogicAppSubscriptionId}}"
+          ResourceGroup: "{{LogicAppResourceGroup}}"
+          WorkflowName: "{{LogicAppWorkflowName}}"
+          TriggerName: manual
