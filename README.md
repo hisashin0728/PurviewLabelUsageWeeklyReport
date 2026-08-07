@@ -18,9 +18,7 @@ Microsoft Purview の**秘密度ラベルの利用状況**を、Microsoft Defend
 
 ## なぜ CloudAppEvents のラベル監査イベントなのか
 
-DLP ポリシー（ルール）を有効化していない環境では、`DLPRuleMatch` レコードは発生しません。
-そのため DLP ベースの集計は 0 件になります。一方、秘密度ラベルの**付与・変更・削除**は、
-DLP の有無に関係なく**統合監査ログ**に記録され、`CloudAppEvents` から取得できます。
+秘密度ラベルの**付与・変更・削除**は、DLP の有無に関係なく**統合監査ログ**に記録され、`CloudAppEvents` から取得できます。
 
 - **DLP ルール不要**（ラベル付与のみの環境で動作）
 - M365 統合監査ログ全体を **1 テーブル**で KQL 集計可能（SharePoint / OneDrive / Exchange /
